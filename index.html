@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>2D Fighter</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #0e0e10;
+            color: #e5e5e5;
+            font-family: Inter, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+            height: 100%;
+            overflow: hidden;
+        }
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        .phaser-debug {
+            position: absolute;
+            left: 12px;
+            bottom: 12px;
+            font-size: 12px;
+            opacity: 0.8;
+        }
+        a, a:visited { color: #6ec1ff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.0/dist/phaser.min.js"></script>
+</head>
+<body>
+<div id="game-container"></div>
+<script>
+// Utility: create simple textures with Graphics to avoid external assets
+function createRectTexture(scene, key, width, height, fillColor, strokeColor, strokeWidth = 0) {
+    const g = scene.add.graphics();
+    g.fillStyle(fillColor, 1);
+    if (strokeWidth > 0) {
+        g.lineStyle(strokeWidth, strokeColor, 1);
+        g.strokeRect(0, 0, width, height);
+    }
+    g.fillRect(0, 0, width, height);
+    g.generateTexture(key, width, height);
+    g.destroy();
+}
+
+const GAME_WIDTH = 1280;
+const GAME_HEIGHT = 720;
+const GROUND_Y = GAME_HEIGHT - 120;
+
+const ROUND_TIME_SECONDS = 60;
+const BEST_OF = 3; // first to 2
+
+const CHARACTERS = {
+    boxer: {
+        name: 'Boxer',
+        tint: 0x3ec1d3,
+        walkSpeed: 320,
+        punch: { damage: 7, range: 105, startup: 80, active: 120, recovery: 220, push: 260 },
+        kick: { damage: 12, range: 140, startup: 140, active: 140, recovery: 280, push: 340 },
+        blockReduction: 0.6, // 40% damage when blocking
+        combos: [
+            { name: '1-1-2', sequence: ['P','P','K'], windowMs: 900, damageBonus: 10, launch: true },
+            { name: 'Jab Flurry', sequence: ['P','P','P'], windowMs: 700, damageBonus: 6 }
+        ]
+    },
+    karateka: {
+        name: 'Karateka',
+        tint: 0xff7f50,
+        walkSpeed: 360,
+        punch: { damage: 6, range: 120, startup: 65, active: 110, recovery: 210, push: 220 },
+        kick: { damage: 14, range: 160, startup: 160, active: 150, recovery: 300, push: 380 },
+        blockReduction: 0.5,
+        combos: [
+            { name: 'Axe Kick', sequence: ['K','P','K'], windowMs: 1000, damageBonus: 12, launch: true },
+            { name: 'Palm Rush', sequence: ['P','K','P'], windowMs: 900, damageBonus: 8 }
+        ]
+    }
+};
+
+class StartMenuScene extends Phaser.Scene {
+    constructor() { super('StartMenu'); }
+    create() {
+        const cx = GAME_WIDTH / 2;
+        const cy = GAME_HEIGHT / 2;
+        this.cameras.main.setBackgroundColor('#101014');
+
+        // Create minimal textures used later
+        createRectTexture(this, 'playerBody', 80, 160, 0xffffff, 0x000000, 2);
+        createRectTexture(this, 'hpBack', 520, 24, 0x22252a, 0x000000, 2);
+        createRectTexture(this, 'hpFillBlue', 520, 24, 0x3ec1d3, 0x000000, 0);
+        createRectTexture(this, 'hpFillOrange', 520, 24, 0xff7f50, 0x000000, 0);
+        createRectTexture(this, 'uiPanel', 600, 320, 0x16181d, 0x2c313a, 4);
+        createRectTexture(this, 'btn', 260, 64, 0x2c313a, 0x3b4252, 2);
+        createRectTexture(this, 'ground', GAME_WIDTH, 40, 0x20232a, 0x000000, 2);
+        createRectTexture(this, 'attackBox', 60, 20, 0xff0000, 0x000000, 0);
+
+        this.add.text(cx, 120, '2D Fighter', { fontSize: 64, color: '#e5e5e5', fontStyle: 'bold' }).setOrigin(0.5);
+        this.add.text(cx, 180, 'Minimal Tekken-like', { fontSize: 20, color: '#aab2bf' }).setOrigin(0.5);
+
+        const panel = this.add.image(cx, cy, 'uiPanel').setAlpha(0.96);
+
+        this.add.text(cx, cy - 120, 'Choose Your Fighter', { fontSize: 26, color: '#e5e5e5' }).setOrigin(0.5);
+
+        this.choices = ['boxer', 'karateka'];
+        this.choiceIndex = 0;
+
+        this.choiceText = this.add.text(cx, cy - 70, `${CHARACTERS[this.choices[this.choiceIndex]].name}`, { fontSize: 36, color: '#ffffff' }).setOrigin(0.5);
+
+        const hint = this.add.text(cx, cy - 30, 'Press Left/Right to switch character', { fontSize: 16, color: '#aab2bf' }).setOrigin(0.5);
+
+        const btnPlay = this.add.container(cx, cy + 70);
+        const btnImg = this.add.image(0, 0, 'btn').setInteractive({ useHandCursor: true });
+        const btnTxt = this.add.text(0, 0, 'START', { fontSize: 26, color: '#e5e5e5' }).setOrigin(0.5);
+        btnPlay.add([btnImg, btnTxt]);
+
+        btnPlay.on('pointerdown', () => this.startGame());
+
+        this.add.text(cx, GAME_HEIGHT - 70,
+            'P1 Controls: A/D move, J punch, K kick, L block.  Enter: Start/Confirm',
+            { fontSize: 16, color: '#9aa0a6' }).setOrigin(0.5);
+
+        this.input.keyboard.on('keydown-LEFT', () => this.switch(-1));
+        this.input.keyboard.on('keydown-RIGHT', () => this.switch(1));
+        this.input.keyboard.on('keydown-ENTER', () => this.startGame());
+    }
+    switch(delta) {
+        this.choiceIndex = (this.choiceIndex + delta + this.choices.length) % this.choices.length;
+        this.choiceText.setText(CHARACTERS[this.choices[this.choiceIndex]].name);
+    }
+    startGame() {
+        const playerCharKey = this.choices[this.choiceIndex];
+        const aiCharKey = this.choices[(this.choiceIndex + 1) % this.choices.length];
+        this.scene.start('Fight', { playerCharKey, aiCharKey });
+    }
+}
+
+class Fighter extends Phaser.GameObjects.Container {
+    constructor(scene, x, y, side, characterDef, displayName) {
+        super(scene, x, y);
+        this.side = side; // 'left' or 'right'
+        this.characterDef = characterDef;
+        this.displayName = displayName;
+        this.maxHealth = 100;
+        this.health = this.maxHealth;
+        this.facing = side === 'left' ? 1 : -1; // 1 right, -1 left
+        this.blocking = false;
+        this.isActing = false;
+        this.comboBuffer = [];
+        this.lastInputTime = 0;
+
+        const body = scene.add.image(0, 0, 'playerBody').setTint(characterDef.tint);
+        body.setOrigin(0.5, 1);
+        body.y = 0;
+
+        this.bodySprite = body;
+        this.add(body);
+        scene.add.existing(this);
+
+        scene.physics.add.existing(this);
+        this.body.setSize(80, 160);
+        this.body.setOffset(-40, -160);
+        this.body.setCollideWorldBounds(true);
+        this.body.setMaxVelocity(characterDef.walkSpeed, 1200);
+        this.body.setDragX(2500);
+        this.setDepth(5);
+
+        this.attackHitbox = scene.add.rectangle(0, -100, 60, 20, 0xff0000, 0.2).setOrigin(0.5);
+        scene.physics.add.existing(this.attackHitbox);
+        this.attackHitbox.body.setAllowGravity(false);
+        this.attackHitbox.active = false;
+        this.attackHitbox.visible = false;
+        this.add(this.attackHitbox);
+    }
+    setFacingTowards(targetX) {
+        this.facing = (targetX >= this.x) ? 1 : -1;
+        this.scaleX = this.facing;
+    }
+    takeDamage(amount) {
+        this.health = Math.max(0, this.health - amount);
+    }
+    isAlive() { return this.health > 0; }
+    resetForRound(spawnX) {
+        this.health = this.maxHealth;
+        this.setPosition(spawnX, GROUND_Y);
+        this.blocking = false;
+        this.isActing = false;
+        this.comboBuffer = [];
+        this.lastInputTime = 0;
+        if (this.body) {
+            this.body.setVelocity(0, 0);
+        }
+    }
+    bufferInput(letter, now) {
+        const MAX_LEN = 5;
+        const EXPIRE_MS = 1100;
+        this.comboBuffer.push({ letter, time: now });
+        // expire old
+        this.comboBuffer = this.comboBuffer.filter(e => now - e.time <= EXPIRE_MS);
+        if (this.comboBuffer.length > MAX_LEN) {
+            this.comboBuffer.shift();
+        }
+    }
+    tryResolveCombo(now) {
+        for (const combo of this.characterDef.combos) {
+            const seq = combo.sequence;
+            let idx = this.comboBuffer.length - 1;
+            let matched = [];
+            let lastTime = now;
+            for (let s = seq.length - 1; s >= 0 && idx >= 0; ) {
+                const item = this.comboBuffer[idx];
+                if (item.letter === seq[s] && (lastTime - item.time) <= combo.windowMs) {
+                    matched.push(item);
+                    lastTime = item.time;
+                    s--; idx--;
+                } else {
+                    idx--;
+                }
+            }
+            if (matched.length === seq.length) {
+                return combo;
+            }
+        }
+        return null;
+    }
+}
+
+class FightScene extends Phaser.Scene {
+    constructor() { super('Fight'); }
+    init(data) {
+        this.playerCharKey = data.playerCharKey || 'boxer';
+        this.aiCharKey = data.aiCharKey || 'karateka';
+        this.scores = { p1: 0, p2: 0 };
+        this.round = 1;
+    }
+    create() {
+        this.cameras.main.setBackgroundColor('#0f1116');
+        this.physics.world.setBounds(40, 0, GAME_WIDTH - 80, GAME_HEIGHT);
+
+        // Ground
+        const ground = this.add.image(GAME_WIDTH / 2, GROUND_Y + 20, 'ground').setDepth(1);
+        ground.setDisplaySize(GAME_WIDTH - 120, 40);
+
+        // Players
+        const leftSpawn = 240;
+        const rightSpawn = GAME_WIDTH - 240;
+        this.player1 = new Fighter(this, leftSpawn, GROUND_Y, 'left', CHARACTERS[this.playerCharKey], 'P1');
+        this.player2 = new Fighter(this, rightSpawn, GROUND_Y, 'right', CHARACTERS[this.aiCharKey], 'CPU');
+
+        // World collision with an invisible ground line
+        this.player1.body.setAllowGravity(true);
+        this.player2.body.setAllowGravity(true);
+        this.player1.body.setBounce(0, 0);
+        this.player2.body.setBounce(0, 0);
+
+        // Fake floor by clamping Y in update
+
+        // UI
+        this.createUI();
+
+        // Input
+        this.keys = this.input.keyboard.addKeys({
+            left: 'A', right: 'D', punch: 'J', kick: 'K', block: 'L', restart: 'R'
+        });
+
+        // Round
+        this.resetRound();
+
+        // Overlap detection
+        this.physics.add.overlap(this.player1.attackHitbox, this.player2, () => this.onHit(this.player1, this.player2));
+        this.physics.add.overlap(this.player2.attackHitbox, this.player1, () => this.onHit(this.player2, this.player1));
+
+        // Pause after round end
+        this.roundOver = false;
+    }
+    createUI() {
+        // Health bars and timer
+        this.ui = this.add.container(0,0).setDepth(20);
+
+        const margin = 48;
+        this.add.image(margin + 260, 34, 'hpBack').setOrigin(0.5, 0.5).setDepth(19);
+        this.add.image(GAME_WIDTH - margin - 260, 34, 'hpBack').setOrigin(0.5, 0.5).setDepth(19);
+        this.hp1Fill = this.add.image(margin + 260, 34, 'hpFillBlue').setOrigin(0.5, 0.5).setDepth(20);
+        this.hp2Fill = this.add.image(GAME_WIDTH - margin - 260, 34, 'hpFillOrange').setOrigin(0.5, 0.5).setDepth(20);
+        this.hp2Fill.scaleX = -1; // fill from right
+
+        this.timerText = this.add.text(GAME_WIDTH/2, 24, '60', { fontSize: 32, color: '#ffffff' }).setOrigin(0.5, 0);
+        this.roundText = this.add.text(GAME_WIDTH/2, 58, 'Round 1', { fontSize: 18, color: '#aab2bf' }).setOrigin(0.5, 0);
+
+        this.name1 = this.add.text(margin, 8, `${CHARACTERS[this.playerCharKey].name} (P1)`, { fontSize: 16, color: '#cbd5e1' }).setDepth(21);
+        this.name2 = this.add.text(GAME_WIDTH - margin, 8, `(CPU) ${CHARACTERS[this.aiCharKey].name}`, { fontSize: 16, color: '#cbd5e1' }).setOrigin(1,0).setDepth(21);
+
+        this.announceText = this.add.text(GAME_WIDTH/2, GAME_HEIGHT/2 - 160, '', { fontSize: 56, color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5).setDepth(30);
+        this.subText = this.add.text(GAME_WIDTH/2, GAME_HEIGHT/2 - 100, '', { fontSize: 20, color: '#aab2bf' }).setOrigin(0.5).setDepth(30);
+        this.scoreText = this.add.text(GAME_WIDTH/2, 86, '', { fontSize: 16, color: '#9aa0a6' }).setOrigin(0.5).setDepth(21);
+    }
+    resetRound() {
+        this.roundOver = false;
+        this.roundTimeLeft = ROUND_TIME_SECONDS;
+        this.roundText.setText(`Round ${this.round}`);
+        this.player1.resetForRound(240);
+        this.player2.resetForRound(GAME_WIDTH - 240);
+        this.updateHealthBars();
+        this.updateScoreText();
+        this.updateTimerText();
+        this.announce('FIGHT!', 'A/D move, J punch, K kick, L block', 900);
+        this.time.delayedCall(900, () => { this.roundStartAt = this.time.now; });
+        if (this.timerEvent) this.timerEvent.remove(false);
+        this.timerEvent = this.time.addEvent({ delay: 1000, loop: true, callback: () => this.tickTimer() });
+    }
+    tickTimer() {
+        if (this.roundOver) return;
+        this.roundTimeLeft -= 1;
+        this.updateTimerText();
+        if (this.roundTimeLeft <= 0) {
+            this.endRoundByTime();
+        }
+    }
+    updateTimerText() {
+        this.timerText.setText(String(Math.max(0, Math.ceil(this.roundTimeLeft))));
+    }
+    update() {
+        // Clamp to ground
+        for (const p of [this.player1, this.player2]) {
+            if (p.y > GROUND_Y) {
+                p.y = GROUND_Y;
+                if (p.body.velocity.y > 0) p.body.setVelocityY(0);
+            }
+        }
+
+        if (!this.roundOver) {
+            this.handlePlayerInput();
+            this.runAI();
+            this.keepApart();
+            this.faceEachOther();
+        } else {
+            if (Phaser.Input.Keyboard.JustDown(this.keys.restart)) {
+                // quick round restart
+                this.restartMatch();
+            }
+        }
+        this.updateHealthBars();
+    }
+    faceEachOther() {
+        this.player1.setFacingTowards(this.player2.x);
+        this.player2.setFacingTowards(this.player1.x);
+    }
+    keepApart() {
+        // Simple collision resolution by pushing apart when overlapping
+        const a = this.player1; const b = this.player2;
+        const overlapX = (a.x + 40) - (b.x - 40);
+        if (overlapX > 0) {
+            const push = overlapX / 2;
+            a.x -= push;
+            b.x += push;
+        }
+    }
+    handlePlayerInput() {
+        const p = this.player1;
+        if (p.isActing) {
+            // no movement while acting
+        } else {
+            if (this.keys.left.isDown) {
+                p.body.setVelocityX(-p.characterDef.walkSpeed);
+            } else if (this.keys.right.isDown) {
+                p.body.setVelocityX(p.characterDef.walkSpeed);
+            }
+        }
+        p.blocking = this.keys.block.isDown;
+
+        const now = this.time.now;
+        if (Phaser.Input.Keyboard.JustDown(this.keys.punch)) {
+            p.bufferInput('P', now);
+            const combo = p.tryResolveCombo(now);
+            if (combo && !p.isActing) {
+                this.performCombo(p, this.player2, combo);
+            } else {
+                this.performAttack(p, this.player2, 'punch');
+            }
+        }
+        if (Phaser.Input.Keyboard.JustDown(this.keys.kick)) {
+            p.bufferInput('K', now);
+            const combo = p.tryResolveCombo(now);
+            if (combo && !p.isActing) {
+                this.performCombo(p, this.player2, combo);
+            } else {
+                this.performAttack(p, this.player2, 'kick');
+            }
+        }
+    }
+    runAI() {
+        const ai = this.player2;
+        const target = this.player1;
+        if (!ai.isAlive() || !target.isAlive()) return;
+
+        const dist = Math.abs(target.x - ai.x);
+        const inRangePunch = dist < ai.characterDef.punch.range;
+        const inRangeKick = dist < ai.characterDef.kick.range;
+
+        // Simple decision making
+        if (!ai.isActing) {
+            // Movement
+            if (dist > 220) {
+                const dir = target.x > ai.x ? 1 : -1;
+                ai.body.setVelocityX(dir * ai.characterDef.walkSpeed * 0.8);
+            } else if (dist < 140) {
+                const dir = target.x > ai.x ? -1 : 1;
+                ai.body.setVelocityX(dir * ai.characterDef.walkSpeed * 0.6);
+            } else {
+                ai.body.setVelocityX(0);
+            }
+
+            // Blocking behavior
+            ai.blocking = inRangePunch && Math.random() < 0.25;
+
+            // Attack behavior
+            if (inRangeKick && Math.random() < 0.012) {
+                this.performAttack(ai, target, 'kick');
+            } else if (inRangePunch && Math.random() < 0.02) {
+                this.performAttack(ai, target, 'punch');
+            } else {
+                // Occasionally try combos
+                if (dist < 180 && Math.random() < 0.004 && !ai.isActing) {
+                    const combos = ai.characterDef.combos;
+                    const chosen = combos[Math.floor(Math.random() * combos.length)];
+                    this.performCombo(ai, target, chosen);
+                }
+            }
+        }
+    }
+    performCombo(attacker, defender, combo) {
+        if (this.roundOver || !attacker.isAlive() || !defender.isAlive()) return;
+        attacker.isActing = true;
+        this.announceTemp(combo.name, 650);
+        const base = attacker.characterDef.punch; // use timing as a base pace
+        const steps = combo.sequence.map((letter, i) => ({
+            kind: letter === 'P' ? 'punch' : 'kick', delay: i * (base.startup + 90)
+        }));
+        steps.forEach((step, idx) => {
+            this.time.delayedCall(step.delay, () => {
+                this.performAttack(attacker, defender, step.kind, idx === steps.length - 1 ? combo : null, true);
+            });
+        });
+        this.time.delayedCall(steps[steps.length - 1].delay + base.recovery + 120, () => {
+            attacker.isActing = false;
+        });
+    }
+    performAttack(attacker, defender, kind, comboFinal = null, partOfCombo = false) {
+        if (this.roundOver || attacker.isActing && !partOfCombo || !attacker.isAlive() || !defender.isAlive()) return;
+        const def = attacker.characterDef[kind];
+        if (!partOfCombo) attacker.isActing = true;
+        // Startup
+        attacker.attackHitbox.visible = true;
+        attacker.attackHitbox.active = false;
+        attacker.attackHitbox.width = 60;
+        attacker.attackHitbox.height = 20;
+        // Place hitbox in front during active frames
+        const placeHitbox = () => {
+            attacker.attackHitbox.active = true;
+            const offsetX = attacker.facing * (def.range - 40);
+            attacker.attackHitbox.x = offsetX;
+            attacker.attackHitbox.y = -120;
+        };
+        const clearHitbox = () => {
+            attacker.attackHitbox.active = false;
+            attacker.attackHitbox.visible = false;
+        };
+        this.time.delayedCall(def.startup, placeHitbox);
+        this.time.delayedCall(def.startup + def.active, clearHitbox);
+
+        // Recovery end
+        if (!partOfCombo) {
+            this.time.delayedCall(def.startup + def.active + def.recovery, () => {
+                attacker.isActing = false;
+            });
+        }
+
+        // Push attacker slightly forward
+        attacker.body.setVelocityX(attacker.facing * def.push);
+
+        // Attach a one-time hit registration window
+        let didHit = false;
+        const hitWindow = this.time.addEvent({
+            delay: 16, loop: true, callback: () => {
+                if (attacker.attackHitbox.active && !didHit) {
+                    const hit = Phaser.Geom.Intersects.RectangleToRectangle(
+                        attacker.attackHitbox.getBounds(), defender.getBounds());
+                    if (hit) {
+                        didHit = true;
+                        let dmg = def.damage;
+                        if (comboFinal) dmg += comboFinal.damageBonus;
+                        this.applyHit(attacker, defender, dmg, comboFinal && comboFinal.launch);
+                    }
+                }
+                if (!attacker.attackHitbox.visible) {
+                    hitWindow.remove(false);
+                }
+            }
+        });
+    }
+    onHit(attacker, defender) {
+        // handled by manual bounds check in performAttack()
+    }
+    applyHit(attacker, defender, rawDamage, launch = false) {
+        if (defender.blocking && defender.isAlive()) {
+            const reduced = Math.ceil(rawDamage * defender.characterDef.blockReduction);
+            defender.takeDamage(reduced);
+            this.floatText(defender.x, defender.y - 200, `Blocked -${reduced}`, '#8ab4f8');
+            defender.body.setVelocityX(-attacker.facing * 160);
+        } else {
+            defender.takeDamage(rawDamage);
+            this.floatText(defender.x, defender.y - 200, `-${rawDamage}`, '#ff6b6b');
+            defender.body.setVelocityX(-attacker.facing * 260);
+            if (launch) {
+                defender.body.setVelocity(-attacker.facing * 200, -280);
+            }
+        }
+        this.cameras.main.shake(60, 0.0025);
+        this.updateHealthBars();
+        if (!defender.isAlive()) {
+            this.handleKO(attacker === this.player1 ? 'p1' : 'p2');
+        }
+    }
+    floatText(x, y, text, color) {
+        const t = this.add.text(x, y, text, { fontSize: 18, color }).setOrigin(0.5).setDepth(40);
+        this.tweens.add({ targets: t, y: y - 40, alpha: 0, duration: 800, onComplete: () => t.destroy() });
+    }
+    updateHealthBars() {
+        const p1r = Phaser.Math.Clamp(this.player1.health / this.player1.maxHealth, 0, 1);
+        const p2r = Phaser.Math.Clamp(this.player2.health / this.player2.maxHealth, 0, 1);
+        this.hp1Fill.setCrop(0, 0, 520 * p1r, 24);
+        this.hp2Fill.setCrop((1 - p2r) * 520, 0, 520 * p2r, 24);
+    }
+    endRoundByTime() {
+        if (this.roundOver) return;
+        const p1 = this.player1.health;
+        const p2 = this.player2.health;
+        if (p1 === p2) {
+            this.announce('DRAW', 'Press R to restart', 1500);
+            this.roundOver = true;
+        } else {
+            const winner = p1 > p2 ? 'p1' : 'p2';
+            this.handleKO(winner, true);
+        }
+    }
+    handleKO(winner, byTime = false) {
+        if (this.roundOver) return;
+        this.roundOver = true;
+        if (winner === 'p1') this.scores.p1 += 1; else this.scores.p2 += 1;
+        this.updateScoreText();
+        this.announce('KO', byTime ? 'Time over' : '');
+        this.time.delayedCall(1200, () => {
+            if (this.scores.p1 >= Math.ceil(BEST_OF/2) || this.scores.p2 >= Math.ceil(BEST_OF/2)) {
+                const msg = this.scores.p1 > this.scores.p2 ? 'YOU WIN' : 'YOU LOSE';
+                this.announce(msg, 'Enter: Menu  •  R: Restart Match');
+                this.input.keyboard.once('keydown-ENTER', () => this.scene.start('StartMenu'));
+                this.input.keyboard.once('keydown-R', () => this.restartMatch());
+            } else {
+                this.round += 1;
+                this.announce(`Round ${this.round}`, 'Get ready...', 800);
+                this.time.delayedCall(900, () => this.resetRound());
+            }
+        });
+    }
+    announce(text, sub = '', hideAfterMs = 1000) {
+        this.announceText.setText(text).setAlpha(1);
+        this.subText.setText(sub).setAlpha(0.9);
+        if (this.announceTimer) this.announceTimer.remove(false);
+        if (hideAfterMs > 0) {
+            this.announceTimer = this.time.delayedCall(hideAfterMs, () => {
+                this.tweens.add({ targets: [this.announceText, this.subText], alpha: 0, duration: 400 });
+            });
+        }
+    }
+    announceTemp(text, ms) {
+        const t = this.add.text(GAME_WIDTH/2, GAME_HEIGHT/2 - 220, text, { fontSize: 24, color: '#ffd166' }).setOrigin(0.5).setDepth(35);
+        this.tweens.add({ targets: t, y: t.y - 20, alpha: 0, duration: ms, onComplete: () => t.destroy() });
+    }
+    updateScoreText() {
+        this.scoreText.setText(`P1 ${this.scores.p1} - ${this.scores.p2} CPU`);
+    }
+    restartMatch() {
+        this.scores = { p1: 0, p2: 0 };
+        this.round = 1;
+        this.resetRound();
+    }
+}
+
+const config = {
+    type: Phaser.AUTO,
+    parent: 'game-container',
+    width: GAME_WIDTH,
+    height: GAME_HEIGHT,
+    backgroundColor: '#0e0e10',
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 1400 },
+            debug: false
+        }
+    },
+    scene: [StartMenuScene, FightScene]
+};
+
+new Phaser.Game(config);
+</script>
+</body>
+</html>
+
+
