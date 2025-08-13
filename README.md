@@ -2,7 +2,7 @@
 
 This is a prototype of a 2D fighting game with two distinct characters. 
 
-<br
+<br>
 
 # Key features
 <br>
