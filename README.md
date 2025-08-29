@@ -6,25 +6,24 @@ Using Google Colab
 <br>
 Weather prediction 
 
-libraries used:
-<br>
+# Libraries used:
 
-Pandas as pd
+- Pandas as pd
 <br>
-Numpy as np
+- Numpy as np
 <br>
-Train test split
+- Train test split
 <br>
-Label Encoder
+- Label Encoder
 <br>
-Random Forest Classifier
+- Random Forest Classifier
 <br>
-Random Forest Regressor
+- Random Forest Regressor
 <br>
-date time and time delta
-
+- date time and time delta
 
 
 
-From sklearn python library pecifically designed for machine learning tasks and provides a wide range of algorithms and 
+
+- From sklearn python library specifically designed for machine learning tasks and provides a wide range of algorithms and 
 tools for data preprocessing, model building, and evaluation. 
