@@ -22,8 +22,8 @@ Weather prediction
 <br>
 - date time and time delta
 
-
-
-
-- From sklearn python library specifically designed for machine learning tasks and provides a wide range of algorithms and 
+<br>
+<br>
+<br> 
+From sklearn python library specifically designed for machine learning tasks and provides a wide range of algorithms and 
 tools for data preprocessing, model building, and evaluation. 
