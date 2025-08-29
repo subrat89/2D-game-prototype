@@ -8,15 +8,22 @@ Weather prediction
 
 # Libraries used:
 
-- Pandas as pd
+
+
+- Pandas as pd 
+<br>
 <br>
 - Numpy as np
 <br>
+<br>
 - Train test split
+<br>
 <br>
 - Label Encoder
 <br>
+<br>
 - Random Forest Classifier
+<br>
 <br>
 - Random Forest Regressor
 <br>
