@@ -1,8 +1,6 @@
 # Weather Prediction 
 
-Using Google Colab
-
-Ybi Foundation internship project 
+The real-time weather prediction model is built using Google Colab 
 <br>
 Weather prediction 
 
