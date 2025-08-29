@@ -2,14 +2,14 @@
 
 Using Google Colab
 
-#YbiFoundation internship project 
+Ybi Foundation internship project 
 <br>
 Weather prediction 
 
 # Libraries used:
 
 
-
+<br>
 - Pandas as pd 
 <br>
 <br>
@@ -26,6 +26,7 @@ Weather prediction
 <br>
 <br>
 - Random Forest Regressor
+<br>
 <br>
 - date time and time delta
 
